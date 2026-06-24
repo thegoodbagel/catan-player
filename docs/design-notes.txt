@@ -1,0 +1,81 @@
+Catan Design Doc
+
+PART 1) Create a local, single-player Catan server + simple UI
+    -> To simulate game-play, simply allow one person to play moves for everyone
+    -> If possible, we could try simple ASCII rendering? If we permit emoji output, this should be pretty simple
+PART 2) Add bots 
+    -> Train bots using RL
+PART 3) Extend to multiplayer
+    -> Connect over local network
+PART 4) EXTEND TO CITIES AND KNIGHTS WOOHOO
+    -> CUSTOM MAPS WOOHOO
+Goal: Learn, make something cool, have fun
+
+
+PART 1 Details:
+    - Engine in C++, exposed to Python with pybind
+    - Components:
+        Board Representation
+        Game State
+        Rules Engine
+        Move Generation + Validation
+        ASCII/Emoji Rendering
+     - Tasks: 
+        Write the simple, slow, and extensible engine in Python first; 
+        We can use it as reference, then write a 'fast' C++ version
+
+PART 2 Details:
+Implement bots in order
+    1. Random (stupid) bot
+    2. Heuristic bot 
+    3. RL bot   
+        Consider techniques:
+            MCTS
+            DQN
+            PPO
+            AlphaZero-style 
+
+PART 3 Details:
+    TCP sockets  or WebSockets
+    
+
+
+Suggested folder organization (thanks claude):
+catan/
+├── README.md                  # what this is, how to run it
+├── notes.txt                  # your notes (already here)
+│
+├── src/                     # THE PYTHON PACKAGE (all your code lives here)
+│   │
+│   ├── engine/                # THE BRAIN. knows the rules. prints nothing.
+│   │   ├── board.py           #   loads a map from data, answers "what's next to what"
+│   │   ├── state.py           #   the full game situation (resources, buildings, whose turn)
+│   │   ├── moves.py           #   defines what a "move" is (build road, roll, trade...)
+│   │   ├── rules.py           #   the turn steps + "what moves are allowed", "apply a move"
+│   │   └── game.py            #   the three operations everyone else uses, tied together
+│   │
+│   ├── maps/                  # THE BOARD DATA (not code — just descriptions of boards)
+│   │   ├── standard.json      #   the classic Catan board
+│   │   └── ...                #   later: bigger maps, custom maps, just add files here
+│   │
+│   ├── ui/                    # THE SCREEN. draws state with emoji. knows nothing about rules.
+│   │   ├── render.py          #   turns a game state into text/emoji you can see
+│   │   └── cli.py             #   the loop: show board, ask human for a move, repeat
+│   │
+│   ├── players/               # THINGS THAT CHOOSE MOVES (grows over Parts 1 & 2)
+│   │   ├── base.py            #   the common shape: "given a state, pick a move"
+│   │   ├── human.py           #   asks the person at the keyboard
+│   │   ├── random_bot.py      #   Part 2: picks a legal move at random
+│   │   └── heuristic_bot.py   #   Part 2: picks using simple scoring
+│   │
+│   └── __init__.py
+│
+├── tests/                     # CHECKS THAT THE ENGINE IS CORRECT
+│   ├── test_board.py
+│   ├── test_rules.py
+│   └── test_game.py
+│
+└── (later parts, when you get there:)
+    ├── cpp/                   # Part 2: the fast C++ engine + pybind bridge
+    ├── rl/                    # Part 2: the training code
+    └── net/                   # Part 3: the network server + client

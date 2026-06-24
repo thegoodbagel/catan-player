@@ -1,0 +1,66 @@
+Engine
+    game: 
+        - oblivious to player logic (routing is handled in init)
+        Methods:
+            InitializeGame()
+            State classes -> Setup, PlayerMoveBefore, DiceRoll, PlayerMoveAfter.
+    move: (has the mutators?)
+        Methods:
+            Roll(Die)
+            MoveRobber(Player, Square) etc.
+
+    board rep:
+        Rolls/Robber: Array of hexes, map to 6 vertices
+        House placements: Array of vertices, map to 3 roads, and 9 vertices (distance 2 for checks)
+        Road placements: Array of roads, map to 2 vertices
+        - all the mappings are reference-based
+        Methods:
+            BoardSetup() -> need to figure out how to place numbers (Leetcode floodfill LOL)
+    players (?):
+        - each person has resource cards + dev cards 
+    state:
+        one board (reference) (we don't need to keep past?)
+            - could consider adding history for single games later on for replay/analysis reasons?
+        resource cards + dev cards
+        die/dice 
+        players (reference)
+    rules:
+        NextState(State)
+        CheckWin()
+        -> Perhaps split into common.py and specialized files
+        (time for claude to shine)
+
+So the flow can be:
+    The Game is kind of a FSM; each state triggers different methods
+        -> The kinds of states themselves are probably in 'game'
+        -> However, the transition functions are in rules 
+        -> Current state is in states
+    - One state is PlayerMove -> player can (substates):
+        -> Place robber
+        -> Roll
+        -> Place robber
+        -> Use a dev card (if haven't used before), trade, place houses/roads, buy a dev card (any order)
+        -> Try to dynamically give player only valid options (click A to do this, B to do this)
+    
+Players 
+    -> Can see game state, but not other player's cards (possible to make just those private?)
+    -> SelectMove(Moves)
+        -> Should also be a simple FSM for now
+    ^Template for player interface 
+
+Maps 
+    -> Files of board shapes? Refernce: https://catancollector.com/maps-scenarios 
+        -> Can send gemini to scrape & analyze 
+        -> Also should probably pair with an array of numbers
+        -> Should also come with more information like default VPs, bonuses, initial placements, more details 
+        -> Format can be row-based; like each row either starts -1 or +1 relative to previous row (sliding manner), and is a certain length; either sea, fog, or stone
+    -> There a LOT of different scenarios, so should get AI to look at all of them and compile a list (in docs maybe) of each type of game
+    -> Can organize by game titles so like 
+        GameTitle
+            - map.json 
+            - numbers.json
+            - rules.json 
+
+UI 
+    -> will leave this to claude's discretion, lol; let's try for a cute simple terminal ver. right now. 
+        (then we can do browser-based, i can add illustrations even haha)
