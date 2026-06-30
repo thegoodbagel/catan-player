@@ -1,5 +1,5 @@
 # src/engine/types.py
-from enum import Enum
+from enum import Enum, IntEnum
 
 class Phase(Enum):
     SETUP = "setup"
@@ -39,4 +39,30 @@ class Color(Enum):
     RED = "Red"
     WHITE = "White"
     BLUE = "Blue"
+
+
+class Direction(IntEnum):
+    """The six edges of a hex, in fixed order.
+       Previxed by H for hex.
+    """
+    E = 0       # east
+    NE = 1      # north-east
+    NW = 2      # north-west
+    W = 3       # west
+    SW = 4      # south-west
+    SE = 5      # south-east
+
+
+# Axial (dq, dr) offset for each direction, indexed by the Direction value.
+# The neighbour of hex (q, r) in direction d is (q + dq, r + dr).
+HEX_DIRECTION_OFFSETS = (
+    (+1,  0),   # Direction.E
+    (+1, -1),   # Direction.NE
+    ( 0, -1),   # Direction.NW
+    (-1,  0),   # Direction.W
+    (-1, +1),   # Direction.SW
+    ( 0, +1),   # Direction.SE
+)
+
+
 

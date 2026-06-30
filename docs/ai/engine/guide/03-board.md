@@ -91,35 +91,52 @@ determining which corners two hexes share — a mechanical operation.
 > given. A complete treatment is available in Red Blob Games' "Hexagonal Grids"
 > article. For the engine, the offset table above is all `load_board` requires.
 
-### Deduplication
+### Deduplication by canonical ownership
 
 A hexagon has 6 corners and 6 sides, so a naive assignment would give 19 hexes
 `19 × 6 = 114` corners. Adjacent hexes, however, **share** corners and edges: where
 two hexes meet, the corner between them is a single point belonging to both. The
 standard board therefore has **54 vertices and 72 edges**.
 
-Deduplication enforces a simple invariant: **one ID per physical location.** When a
-corner has already been created by an earlier hex, the existing ID is reused rather
-than a new one assigned. Without this invariant — if a single corner received
-`vertex 3` from one hex and `vertex 9` from another — a settlement recorded at
-`vertex 3` would fail to block construction at `vertex 9`, despite the two
-referring to the same location, and the engine would be silently incorrect.
+Deduplication enforces a simple invariant: **one identity per physical location.**
+If a single corner were recorded as `vertex 3` from one hex and `vertex 9` from
+another, a settlement at `vertex 3` would fail to block construction at `vertex 9`,
+even though the two name the same point, and the engine would be silently
+incorrect.
 
-The mechanism assigns each corner a **canonical key** derived from its geometry, so
-that the same physical point always produces the same key, then maps keys to IDs,
-reusing the stored ID whenever a key recurs:
+The clean way to guarantee the invariant is a **canonical owner**. The vertices of
+a hex tiling form a bipartite (two-colour) lattice with exactly two vertices per
+hex, so each hex can *own* two of its corners — here the **left** and **top-left**,
+labelled by a `slot`. A vertex's canonical key is then the triple
+`(q, r, slot)` of its owning hex. The other four corners of any hex are owned by
+neighbours; a fixed offset table maps each of those corners to the
+`(neighbour, slot)` that owns it. Because two hexes sharing a corner both resolve
+to the same owner, equal keys denote the same vertex automatically — no geometric
+proximity test, no floating point.
+
+The keys are stable identifiers but not yet dense. A single enumeration pass turns
+them into the contiguous integer IDs the engine uses:
 
 ```python
-vertex_of_key: dict = {}          # canonical corner key -> vertex id
+vertex_of_key: dict = {}          # canonical (q, r, slot) key -> vertex id
 def vertex_id(key) -> int:
     if key not in vertex_of_key:
         vertex_of_key[key] = len(vertex_of_key)   # first occurrence: assign next id
     return vertex_of_key[key]                     # later occurrences: reuse the id
 ```
 
-Edges are handled identically, keyed by their two endpoints. This computation runs
-**once** in `load_board`; the resulting tables are stored, and the remainder of the
-engine operates on integer IDs alone, free of coordinates.
+Walking every corner of every hex through `vertex_id` yields exactly the 54
+vertices, numbered `0..53` in order of first appearance; the boundary corners,
+whose canonical owner is an off-board hex, are discovered here just like any other.
+Edges are handled identically: each hex owns three of its sides, and the same
+enumeration produces the 72 edge IDs. `load_board` keeps the mapping both ways —
+key→id for lookups and id→key for debugging and rendering — and the rest of the
+engine then operates on integer IDs alone, free of coordinates.
+
+> The offset table that maps a hex's four non-owned corners to their owning
+> `(neighbour, slot)` is the one piece of real geometry to work out, and it depends
+> on the chosen hex orientation. Deriving it is left as an exercise; the consistency
+> property below will tell you when it is correct.
 
 ## The board as data, hardcoded for now
 
@@ -136,41 +153,49 @@ swapping to a file later changes only the loader:
 STANDARD_BOARD = {
     "meta":  {"name": "standard", "player_counts": [3, 4], "vp_target": 10},
 
-    # Geometry only — where the hexes sit. No resource or number here; those are
-    # assigned per game during setup.
+    # Geometry only — where the hexes sit, in row-major order (hex id == index).
+    # Axial (q, r) anchored so the top-left hex is (0, 0). No resource or number
+    # here; those are assigned per game during setup.
     "hexes": [
-        {"coord": [0, -2]},
-        {"coord": [1, -2]},
-        {"coord": [2, -2]},
-        {"coord": [-1, -1]},
-        # ... 19 hex positions total ...
+        {"coord": [0, 0]},
+        {"coord": [1, 0]},
+        {"coord": [2, 0]},
+        {"coord": [-1, 1]},
+        # ... 19 hex positions total (a radius-2 hexagon) ...
     ],
 
     # The bag of terrain tiles to shuffle across those positions (base game):
     # 4 wood, 4 sheep, 4 wheat, 3 brick, 3 ore, 1 desert = 19.
-    "terrain_supply": {
+    "hex_resources": {
         "wood": 4, "sheep": 4, "wheat": 4, "brick": 3, "ore": 3, "desert": 1,
     },
 
     # The number tokens in their fixed placement order (the A..R sequence,
     # 18 of them — one per non-desert hex). See the next section.
-    "number_order": [5, 2, 6, 3, 8, 10, 9, 12, 11, 4, 8, 10, 9, 4, 5, 6, 3, 11],
+    "hex_numbers": [5, 2, 6, 3, 8, 10, 9, 12, 11, 4, 8, 10, 9, 4, 5, 6, 3, 11],
 
-    # The order to walk hex positions when laying tokens: a spiral from an outer
-    # corner inward, as hex indices into "hexes". The loader skips whichever
-    # position turns out to be the desert this game.
-    "token_spiral": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18],
-
-    "ports": [
-        {"vertices": [0, 1], "ratio": 3, "resource": None},      # generic 3:1
-        {"vertices": [3, 4], "ratio": 2, "resource": "wheat"},   # specific 2:1
+    # Fixed port POSITIONS — each a coastal edge, given as a hex id plus a side
+    # Direction. The ratio/resource is NOT fixed here; it is drawn from
+    # "port_supply" at setup (see "Ports are positions plus a supply" below).
+    "port_positions": [
+        {"hex": 0, "dir": Direction.NW},
+        {"hex": 2, "dir": Direction.NE},
+        # ... 9 positions total ...
+    ],
+    "port_supply": [
+        {"ratio": 3, "resource": None},      # 4 generic 3:1 harbours
+        {"ratio": 2, "resource": "wheat"},   # one 2:1 harbour per resource
         # ...
     ],
     "rules": "base",
 }
 ```
 
-## How Catan assigns numbers (and why the format stores an order, not numbers)
+Note what is *absent*: there is no stored spiral. The order in which numbers are
+laid is a per-game setup choice, not fixed scenario data, for reasons covered in
+the next section.
+
+## How Catan assigns numbers (and why the spiral is generated at setup)
 
 Number tokens are not chosen freely. They are placed by a fixed procedure designed
 to distribute the high-probability numbers across the board:
@@ -178,28 +203,53 @@ to distribute the high-probability numbers across the board:
 - The 18 tokens (one per land hex) are lettered **A through R**, each printed with
   a fixed number: A=5, B=2, C=6, D=3, E=8, F=10, G=9, H=12, I=11, J=4, K=8, L=10,
   M=9, N=4, O=5, P=6, Q=3, R=11. Recorded as a plain sequence of numbers, this is
-  the `number_order` above.
-- Beginning at a corner hex, the tokens are placed in alphabetical order along a
-  **counterclockwise spiral from the outer ring inward**, skipping the desert,
-  which holds the robber and receives no number.
+  the `hex_numbers` above.
+- The tokens are placed in alphabetical order along a **spiral that winds from an
+  outer corner inward**, skipping the desert, which holds the robber and receives
+  no number.
 - The letter-to-number assignment is constructed so that the two
   highest-probability numbers, **6 and 8** (the red numbers), are never placed on
   adjacent hexes. Because 6 and 8 are the most frequent rolls, two of them on
   touching hexes would concentrate excessive production at a single corner.
 
-Terrain tiles, by contrast, are shuffled randomly onto the positions. A game's
-layout is therefore the combination of **random terrain placement and fixed-order
-number placement.** Since terrain is random, the desert's position varies between
-games, which is why the spiral skips whichever hex is the desert in a given game
-rather than a fixed index.
+The spiral's **starting corner and winding direction are not fixed**. A faithful
+setup chooses them at random, so the number pattern lands in a random orientation
+relative to the board. This matters because the ports sit at fixed positions: a
+spiral pinned to one corner would always correlate the number pattern with the same
+harbours, giving certain ports a systematic edge. Randomising the spiral
+decorrelates the two. (The spiral's rotations and reflections are symmetries of the
+number pattern, so this changes orientation without disturbing the 6-and-8
+guarantee.)
 
-This has a direct consequence for the data format: the scenario stores the *order*
-(`number_order` and `token_spiral`) and the *supply* (`terrain_supply`), not the
-per-hex result. A setup step produces one concrete assignment of resource and
-number to each hex. The fixed geometry — positions and adjacency tables — belongs
-on the immutable `Board`, while the per-game resource and number assignment is
-determined at setup and held in the `State` (Chapter 4) rather than the static
-board.
+Terrain tiles are likewise shuffled randomly onto the positions. A game's layout is
+therefore the combination of **random terrain placement and a randomly oriented,
+fixed-order number spiral.** Since terrain is random, the desert's position varies
+between games, so the spiral skips whichever hex is the desert that game.
+
+This shapes the data format. The scenario stores only the fixed ingredients — the
+hex positions, the terrain supply (`hex_resources`), and the number sequence
+(`hex_numbers`). It deliberately does **not** store the spiral path: that path is
+derived at setup from the chosen corner and direction by walking the rings of the
+board. The resulting per-hex assignment of resource and number is part of the
+game's starting situation and is held in the `State` (Chapter 4), not on the
+immutable `Board`.
+
+## Ports are positions plus a supply
+
+A port has two independent parts. Its **position** is the coastal edge it occupies,
+which is fixed geometry, and its **type** — a generic 3:1 ratio or a resource-specific
+2:1 ratio — which in the variable setup is shuffled like terrain. The scenario
+therefore records the nine positions in `port_positions` and the nine type tokens
+in `port_supply` (four 3:1 harbours and one 2:1 harbour per resource), and setup
+deals the supply onto the positions.
+
+A position is written as `{"hex": h, "dir": i}`: hex `h` together with one of its
+six side directions. This names the coastal edge directly, without depending on the
+vertex IDs that `load_board` will assign. The loader resolves each `(hex, dir)` to
+the two vertex IDs the port touches, which are the vertices at which a settlement or
+city may use that harbour. (The classic cardboard frame fixes harbour types to
+positions; storing types as a supply is the variable-harbour rule, consistent with
+randomised terrain and numbers.)
 
 ## Validate before you trust
 
@@ -216,13 +266,17 @@ class InvalidScenario(Exception):
     pass
 ```
 
-The loader should verify that the terrain supply sums to the number of hex
-positions, that `number_order` contains exactly one entry per non-desert hex (the
-hex count minus the desert count), that every entry in `number_order` is a legal
-token (2–12, excluding 7), and that `token_spiral` lists every hex position exactly
-once. A malformed board caught at load produces a clear message; the same mistake
-caught mid-game produces a baffling crash. These are exactly the checks a future
-file loader will reuse.
+The loader should verify that the terrain supply (`hex_resources`) sums to the
+number of hex positions, that `hex_numbers` contains exactly one entry per
+non-desert hex (the hex count minus the desert count), and that every entry in
+`hex_numbers` is a legal token (2–12, excluding 7). For ports, it should confirm
+that each `port_positions` entry names a genuine coastal edge (the neighbour in
+that direction is off-board), that no two ports share an edge, and that
+`port_supply` has one token per position. The spiral is not checked here — it is
+generated and validated by the setup step, not stored in the scenario. A malformed
+board caught at load produces a clear message; the same mistake caught mid-game
+produces a baffling crash. These are exactly the checks a future file loader will
+reuse.
 
 ## Immutability
 
@@ -248,12 +302,12 @@ copy of the game state without fear — central to the cheap-copy story in Chapt
 2. **Consistency property.** Write a test asserting the tables agree with each
    other: for every hex `h` and corner `v` in `hex_vertices[h]`, confirm `h` is in
    `vertex_hexes[v]`. Why is this the *first* test to write?
-3. **Validation.** Make a corrupted copy of `STANDARD_BOARD` whose `terrain_supply`
-   does not sum to the number of hex positions (or whose `number_order` has the
+3. **Validation.** Make a corrupted copy of `STANDARD_BOARD` whose `hex_resources`
+   does not sum to the number of hex positions (or whose `hex_numbers` has the
    wrong length), and assert `load_board` raises `InvalidScenario` naming the
    problem.
 4. **Count check.** Assert the standard board has 19 hexes in rows 3-4-5-4-3, that
-   `terrain_supply` sums to 19 with exactly one desert, that `number_order` has 18
+   `hex_resources` sums to 19 with exactly one desert, that `hex_numbers` has 18
    entries each in 2–12 excluding 7, and that there are 9 ports.
 5. **(Stretch) Distance rule, in advance.** Using only `vertex_neighbors`, write a
    function `can_place_settlement(occupied_vertices, v)` returning whether `v` and
@@ -295,7 +349,7 @@ copy of the game state without fear — central to the cheap-copy story in Chapt
 
   def test_terrain_supply_must_match_hex_count():
       bad = copy.deepcopy(STANDARD_BOARD)
-      bad["terrain_supply"]["wood"] += 1   # now sums to 20, but there are 19 hexes
+      bad["hex_resources"]["wood"] += 1   # now sums to 20, but there are 19 hexes
       with pytest.raises(InvalidScenario):
           load_board(bad)   # have load_board accept either a name or a data dict
   ```
@@ -303,7 +357,7 @@ copy of the game state without fear — central to the cheap-copy story in Chapt
   so the message names the failing rule.
 - **Ex. 4 (count check).** Pure assertions on the loaded board:
   `assert board.num_hexes() == 19`; `assert sum(supply.values()) == 19` and
-  `assert supply["desert"] == 1`; `assert len(number_order) == 18` and every entry
+  `assert supply["desert"] == 1`; `assert len(hex_numbers) == 18` and every entry
   is in `set(range(2, 13)) - {7}`; `assert len(board.ports) == 9`. For the
   3-4-5-4-3 row shape, group hex positions by the second axial coordinate and
   assert the row sizes.
