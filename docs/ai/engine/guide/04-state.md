@@ -150,3 +150,147 @@ dicts. A copy you have proven leak-free is the foundation `apply` depends on.
 ---
 
 Previous: [03 — The Board as a Graph](03-board.md) | Next: [05 — The Rulebook as Data: The Variant Bundle](05-variant-bundle.md)
+
+---
+
+## Appendix: The Python behind `State`
+
+One idea sits under most of what follows, so it comes first. An **annotation** is
+the `: type` you can attach to a variable or field, as in `x: int`. Python records
+annotations but never checks or acts on them while the program runs — they exist
+for human readers and for tools such as type checkers and editors. So "the type is
+wrong" is never itself a runtime error here, and a few of the oddities below (a
+type written in quotes, a bare `list`) are simply notes to those readers rather
+than instructions to Python.
+
+### Dataclasses
+
+Writing a small class that just holds a few values normally means writing a
+repetitive constructor that copies each argument onto `self`, and then writing
+`__repr__` and `__eq__` by hand. A **dataclass** generates all of that from the
+fields you declare, and you declare a field simply by giving it a name and an
+annotation.
+
+```python
+from dataclasses import dataclass
+
+@dataclass
+class Point:
+    x: int
+    y: int
+```
+
+The annotation is doing real work: the decorator scans the class for annotated
+attributes and treats each as a field. From those fields it builds a constructor,
+so that `Point(1, 2)` and `Point(x=1, y=2)` both work, a readable string form, and
+an equality check that compares two points field by field.
+
+A field may carry a default value, and the rule mirrors ordinary function
+arguments: once one field has a default, every field after it must have one too.
+Required fields therefore come first and defaulted ones last, or Python refuses to
+build the class. This is the exact ordering that broke `State` earlier, when the
+defaulted fields had drifted above the required ones.
+
+Defaults that are themselves mutable — a list, a dict, a set — need special care.
+If you wrote `move_log: list = []`, that one list would be shared by every `State`
+ever created, so appending to one game's log would silently change every other.
+Dataclasses catch this and make you request a fresh object per instance through a
+factory instead:
+
+```python
+from dataclasses import dataclass, field
+
+@dataclass
+class State:
+    move_log: list = field(default_factory=list)   # a new empty list for each State
+```
+
+`field(...)` is the general way to configure a single field; asking for a
+`default_factory` is its most common use, though it can also drop a field out of
+the generated equality check (`compare=False`) or hide it from the string form
+(`repr=False`).
+
+A dataclass can also be **frozen**, meaning its fields cannot be reassigned after
+construction; a frozen instance is additionally hashable, so it can live in a set
+or serve as a dict key. That is why the move records are written
+`@dataclass(frozen=True)`: a recorded move should never change afterward, and
+hashability is what lets the move log be compared and replayed. `State` is left
+unfrozen, because the turn loop updates it in place.
+
+### Types that don't exist yet, and types left vague
+
+Because annotations are never executed, you can name a type Python cannot resolve
+at that moment by writing it as a string — a **forward reference**. A method that
+returns its own class needs one, as in `def copy(self) -> "State":`, written while
+`State` is still being defined, and so does the `board: "Board"` field. `Board` is
+imported in a block that runs only for type checkers:
+
+```python
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:          # a constant that is False at runtime, True for tools
+    from engine.board import Board
+```
+
+Importing it this way avoids an import cycle and does not require `board.py` to
+exist yet, but it also means the name `Board` genuinely is not available while the
+program runs, so it may appear only inside a string. (Adding
+`from __future__ import annotations` at the top of the file turns every annotation
+into a string automatically, which is why the quotes are strictly optional.)
+
+The opposite case is a type left deliberately vague. `move_log: list` says "a
+list" without saying of what, because a move can be any of several record types and
+there is no single name covering them yet. That is a valid annotation; it simply
+promises less.
+
+### Copying without leaks
+
+The chapter's core problem is a copy that is both cheap and safe, and the two
+ready-made copies each fail one of those goals. A **shallow copy** (`copy.copy`)
+makes a new outer object but leaves its fields pointing at the very same inner
+objects, so editing the copy's resource dict would also edit the original's. A
+**deep copy** (`copy.deepcopy`) duplicates everything recursively, which is safe
+but wasteful, since it would clone the large, unchanging board on every call.
+
+What `State.copy()` needs lies between the two: keep sharing the parts that never
+change, and duplicate the parts that do. Sharing is safe exactly for values that
+cannot be mutated — an integer, a string, a tuple, a frozen record, or the
+immutable `Board` — because nothing can alter them through the shared reference.
+Everything mutable is rebuilt fresh:
+
+```python
+import copy as _copy
+
+def copy(self) -> "State":
+    new = _copy.copy(self)                             # start from a shallow copy
+    new.board = self.board                             # deliberately keep sharing it
+    new.settlements = list(self.settlements)           # a new list of the same ints
+    new.resources = [dict(r) for r in self.resources]  # a new list AND a new dict each
+    return new
+```
+
+The difference between those last two lines is the point of the whole chapter.
+`list(xs)` makes a new list, which is enough when its elements are themselves
+immutable, as the owner ints are. But when a list holds mutable items — each
+player's resource dict — a new outer list still shares those dicts, so each one
+must be copied too, which is what `[dict(r) for r in xs]` does. Overlooking this is
+precisely the aliasing bug Exercise 2 asks you to reproduce.
+
+One convenience for later: `dataclasses.replace(record, field=value)` returns a
+copy of a record with a single field changed, which is the normal way to "modify" a
+frozen instance you are not allowed to assign to.
+
+### Iterating an enum during setup
+
+Initialising the per-player tallies relies on two small facts: an `Enum` can be
+looped over, yielding its members in order, and a member can be used as a dict key.
+Together they let one comprehension give every player a fully zeroed resource
+count:
+
+```python
+resources = [{r: 0 for r in Resource} for _ in range(num_players)]
+```
+
+The inner `for r in Resource` walks `Resource.WOOD`, `Resource.BRICK`, and the
+rest, building one `{resource: 0}` dict, and the outer comprehension repeats that
+for each player.
