@@ -24,7 +24,3 @@ ownership of all code remains with the repository owner regardless of the marker
   stays accurate as files evolve, so a hand-written tag would only go stale.
 - **No `@author` tags.** Human authorship is tracked through git history rather than
   in-file tags, for the same staleness reason.
-
-### Currently tagged
-
-- `tests/test_board_data.py`
