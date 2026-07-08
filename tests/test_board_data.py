@@ -9,8 +9,8 @@ from collections import Counter
 
 import pytest
 
-from engine.board_data import STANDARD_BOARD, HEX_DIRECTION_OFFSETS
-from engine.types import Direction
+from engine.board_data import STANDARD_BOARD
+from engine.types import Direction, HEX_DIRECTION_OFFSETS
 
 BOARD = STANDARD_BOARD
 HEXES = BOARD["hexes"]
@@ -72,17 +72,10 @@ def test_number_multiset_matches_standard_distribution():
 
 
 # --- token spiral ----------------------------------------------------------
-
-def test_spiral_is_a_permutation_of_all_hexes():
-    assert sorted(BOARD["token_spiral"]) == list(range(len(HEXES)))
-
-
-def test_spiral_steps_are_adjacent():
-    spiral = BOARD["token_spiral"]
-    offsets = set(HEX_DIRECTION_OFFSETS)
-    for a, b in zip(spiral, spiral[1:]):
-        (aq, ar), (bq, br) = COORDS[a], COORDS[b]
-        assert (bq - aq, br - ar) in offsets, f"hex {a}->{b} not adjacent"
+# The token order is no longer stored in the scenario: numbers are placed at
+# setup by layout.generate_layout under a no-adjacent-red constraint. Those
+# properties are covered in tests/test_layout.py, so there is nothing static to
+# check here.
 
 
 # --- ports -----------------------------------------------------------------

@@ -1,6 +1,10 @@
 # src/engine/types.py
 from enum import Enum, IntEnum
 
+# empty hexes
+EMPTY = -1
+
+
 class Phase(Enum):
     SETUP = "setup"
     ROBBER = "robber"               # can be reached by:
