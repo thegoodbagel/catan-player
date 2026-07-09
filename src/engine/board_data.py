@@ -92,3 +92,9 @@ STANDARD_BOARD = {
 
     "rules": "base",
 }
+
+# Scenarios load_board can look up by name.
+SCENARIOS = {
+    "standard": STANDARD_BOARD,
+    "base": STANDARD_BOARD,
+}
