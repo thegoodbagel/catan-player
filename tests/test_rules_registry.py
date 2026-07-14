@@ -16,7 +16,6 @@ from engine.rules import (
     register_variant,
     active_bundle,
     BASE,
-    _todo,
 )
 from engine.moves import BuildRoad, BuildSettlement
 from engine.types import Resource, Phase
@@ -39,10 +38,11 @@ def test_base_config_is_readable():
     assert Phase.BUILD in BASE.phases
 
 
-def test_rule_slots_are_stubs_for_now():
-    # placeholders should exist but refuse to run until later chapters fill them
-    with pytest.raises(NotImplementedError):
-        BASE.effects[BuildSettlement]()
+def test_rule_slots_are_wired_to_callables():
+    # by Chapters 6-8 every slot points at a real function
+    assert callable(BASE.generators[Phase.BUILD])
+    assert callable(BASE.effects[BuildSettlement])
+    assert all(callable(src) for src in BASE.vp_sources)
 
 
 def test_new_variant_is_just_data():
