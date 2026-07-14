@@ -37,6 +37,7 @@ class Board:
     _vertex_hexes: tuple[tuple[int, ...], ...]  # vertex id -> the 1..3 hexes on it
     _edge_vertices: tuple[tuple[int, int], ...] # edge id -> its 2 endpoint vertices
     _vertex_neighbors: tuple[tuple[int, ...], ...]  # vertex id -> adjacent vertices
+    _vertex_edges: tuple[tuple[int, ...], ...]      # vertex id -> incident edges
     _hex_neighbors: tuple[tuple[int, ...], ...]     # hex id -> adjacent hexes
 
     # --- counts ---
@@ -67,6 +68,9 @@ class Board:
 
     def vertex_neighbors(self, v: int) -> tuple[int, ...]:
         return self._vertex_neighbors[v]
+
+    def vertex_edges(self, v: int) -> tuple[int, ...]:
+        return self._vertex_edges[v]
 
     def edge_vertices(self, e: int) -> tuple[int, int]:
         return self._edge_vertices[e]
@@ -166,10 +170,14 @@ def load_board(scenario="standard") -> Board:
 
     # vertex adjacency comes straight from the edges
     vn: list[set[int]] = [set() for _ in range(n_vertices)]
-    for a, b in edge_vertices:
+    ve: list[set[int]] = [set() for _ in range(n_vertices)]
+    for e, (a, b) in enumerate(edge_vertices):
         vn[a].add(b)
         vn[b].add(a)
+        ve[a].add(e)
+        ve[b].add(e)
     vertex_neighbors = tuple(tuple(sorted(s)) for s in vn)
+    vertex_edges = tuple(tuple(sorted(s)) for s in ve)
 
     hex_neighbors = tuple(
         tuple(id_of[(q + dq, r + dr)]
@@ -185,5 +193,6 @@ def load_board(scenario="standard") -> Board:
         _vertex_hexes=tuple(vertex_hexes),
         _edge_vertices=edge_vertices,
         _vertex_neighbors=vertex_neighbors,
+        _vertex_edges=vertex_edges,
         _hex_neighbors=hex_neighbors,
     )
